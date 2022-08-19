@@ -1,42 +1,70 @@
-// HTML містить кнопки «Start» і «Stop».
+import { Notify } from 'notiflix';
+import SimpleLightbox from 'simplelightbox';
+import 'simplelightbox/dist/simple-lightbox.min.css'; // Додатковий імпорт стилів
+import { render } from './render.js';
+import { getter } from './api';
 
-// <button type="button" data-start>Start</button>
-// <button type="button" data-stop>Stop</button>
-// Напиши скрипт, який після натискання кнопки «Start», раз на секунду змінює колір фону <body> на випадкове значення,
-// використовуючи інлайн стиль.Натисканням на кнопку «Stop» зміна кольору фону повинна зупинятися.
+const form = document.querySelector('.search-form');
+const divForGallery = document.querySelector('.gallery');
+const scroll = document.querySelector('.observer');
 
-// УВАГА
-// Враховуй, що на кнопку «Start» можна натиснути нескінченну кількість разів. Зроби так, щоб доки зміна теми запущена,
-// кнопка «Start» була неактивною(disabled).
+// настройки observer
+let options = {
+  //   root: null, //элемент, который выступает в роли области просмотра для target (предок целевого элемента или null для viewport)
+  rootMargin: '200px', //отступы вокруг root (margin в CSS, по умолчанию все отступы равны 0)
+  treshold: 1, //число или массив чисел, указывающий допустимый процент пересечения target и root
+};
 
-// Для генерування випадкового кольору використовуй функцію getRandomHexColor.
+// наблюдатель для скрола(observer)
+const observer = new IntersectionObserver(updateList, options);
 
-// function getRandomHexColor() {
-//   return `#${Math.floor(Math.random() * 16777215).toString(16)}`;
-// }
+let page;
+let totalPages;
+let request;
+let lightbox;
 
-const startBtn = document.querySelector('[data-start]');
-const stopBtn = document.querySelector('[data-stop]');
-const body = document.querySelector('body');
-
-stopBtn.disabled = true;
-
-let timerId = null;
-
-startBtn.addEventListener('click', () => {
-  startBtn.disabled = true;
-  stopBtn.disabled = false;
-  timerId = setInterval(() => {
-    body.style.backgroundColor = getRandomHexColor();
-  }, 1000);
-});
-
-stopBtn.addEventListener('click', () => {
-  startBtn.disabled = false;
-  stopBtn.disabled = true;
-  clearInterval(timerId);
-});
-
-function getRandomHexColor() {
-  return `#${Math.floor(Math.random() * 16777215).toString(16)}`;
+// функция обратного вызова для observer
+function updateList(data, observer) {
+  data.forEach(data => {
+    if (data.isIntersecting && page <= totalPages) {
+      getter(page, request).then(response => {
+        render(response.hits);
+        lightbox.refresh();
+        observer.unobserve(scroll);
+        observer.observe(scroll);
+        page += 1;
+      });
+    } else if (page > totalPages) {
+      Notify.info('We`re sorry, but you`ve reached the end of search results.');
+      observer.unobserve(scroll);
+    }
+  });
 }
+
+let isObserve = false;
+
+form.addEventListener('submit', event => {
+  event.preventDefault();
+  divForGallery.innerHTML = '';
+  request = event.target[0].value;
+  if (isObserve) {
+    observer.unobserve(scroll);
+  }
+  page = 1;
+  if (request) {
+    getter(page, request).then(response => {
+      if (response.hits.length) {
+        lightbox = new SimpleLightbox('.gallery a');
+        totalPages = Math.ceil(response.totalHits / 40);
+        Notify.success(`Hooray! We found ${response.totalHits} images.`);
+        observer.observe(scroll);
+        isObserve = true;
+      } else {
+        Notify.failure('Sorry, your request not result.');
+      }
+    });
+  } else {
+    Notify.failure('Please, input something!');
+  }
+  form.reset();
+});
